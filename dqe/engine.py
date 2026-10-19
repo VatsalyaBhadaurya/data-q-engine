@@ -26,6 +26,13 @@ class Engine:
         lengths: Dict[int, int] = {}
         task_of: Dict[int, int] = {}
 
+        judge = None
+        if self.cfg.instruction.enabled:
+            from .augment.instruction_judge import build_judge
+            judge = build_judge(self.cfg.instruction)
+            if verbose:
+                print("  instruction judge: %s" % self.cfg.instruction.backend)
+
         episodes = list(self.ds.iter_episodes())
         # length-outlier reference (p99) from the data itself
         all_lens = np.array([e.state.shape[0] for e in episodes]) if episodes else np.array([0])
@@ -48,6 +55,18 @@ class Engine:
                     self.cfg.video.frozen_diff_eps))
             elif self.cfg.video.enabled:
                 m["video_available"] = 0.0
+
+            if judge is not None:
+                frames = []
+                if ep.video_refs:
+                    from .metrics import video as video_mod
+                    ref = next(iter(ep.video_refs.values()))
+                    frames = video_mod.extract_frames(
+                        ref["path"], ref["from_ts"], ref["to_ts"],
+                        self.cfg.instruction.max_frames)
+                verdict = judge.judge(ep.task, frames, m)
+                m["instruction_score"] = verdict["instruction_score"]
+                m["instruction_reason"] = verdict["reason"]
 
             scored = scorer.score_episode(m)
             rec = {

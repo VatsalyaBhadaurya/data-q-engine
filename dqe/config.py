@@ -56,6 +56,19 @@ class DedupConfig:
 
 
 @dataclass
+class InstructionConfig:
+    """VLM instruction-following judge (RLDX "video quality / instruction
+    following" filter). Scores whether an episode's frames actually accomplish
+    its language instruction."""
+    enabled: bool = False
+    backend: str = "heuristic"            # heuristic | claude | hf
+    model: str = "claude-opus-4-8"        # for backend=claude
+    hf_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"   # for backend=hf
+    max_frames: int = 4                   # frames sampled from the clip to judge
+    fail_threshold: float = 0.5           # below this -> instruction_fail (critical)
+
+
+@dataclass
 class ScoreWeights:
     tracking: float = 0.30
     smoothness: float = 0.20
@@ -64,6 +77,7 @@ class ScoreWeights:
     gripper: float = 0.10
     limits: float = 0.05
     video: float = 0.10
+    instruction: float = 0.20             # only counted when the judge runs
 
 
 @dataclass
@@ -71,6 +85,7 @@ class QualityConfig:
     trajectory: TrajectoryConfig = field(default_factory=TrajectoryConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
     dedup: DedupConfig = field(default_factory=DedupConfig)
+    instruction: InstructionConfig = field(default_factory=InstructionConfig)
     weights: ScoreWeights = field(default_factory=ScoreWeights)
     # Episodes scoring below this (after reweighting to enabled metrics) are
     # dropped from the curated split. Near-duplicates are also dropped.
@@ -79,7 +94,7 @@ class QualityConfig:
     # defects where a merely-mediocre score would otherwise let garbage pass.
     critical_flags: tuple = (
         "contains_nan", "near_static", "too_short", "video_missing",
-        "limit_violation",
+        "limit_violation", "instruction_fail",
     )
 
     def to_dict(self) -> Dict:

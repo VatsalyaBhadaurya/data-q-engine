@@ -66,6 +66,30 @@ def analyse_clip(path: str, from_ts: float, to_ts: float, sample_fps: float,
         cap.release()
 
 
+def extract_frames(path: str, from_ts: float, to_ts: float, n: int):
+    """Return up to ``n`` BGR frames evenly sampled across the episode clip."""
+    cv2 = _open_cv()
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        return []
+    try:
+        src_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        if to_ts > from_ts:
+            times = np.linspace(from_ts, to_ts, n + 2)[1:-1]  # skip exact ends
+        else:
+            total = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+            times = np.linspace(0, max(total / src_fps, 0.0), n + 2)[1:-1]
+        frames = []
+        for t in times:
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
+            ok, frame = cap.read()
+            if ok and frame is not None:
+                frames.append(frame)
+        return frames
+    finally:
+        cap.release()
+
+
 def compute(video_refs: Dict[str, dict], sample_fps: float, max_frames: int,
             frozen_diff_eps: float) -> Dict[str, float]:
     """Aggregate per-camera clip metrics into worst-case episode metrics."""

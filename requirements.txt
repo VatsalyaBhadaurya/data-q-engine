@@ -2,3 +2,8 @@ numpy>=1.21
 pandas>=1.3
 pyarrow>=6.0
 opencv-python>=4.5
+
+# Optional — only for model-backed backends (offline paths need neither):
+#   anthropic>=0.40      # --judge claude / --task-backend claude
+#   transformers>=4.46   # --judge hf  (plus torch + a downloaded VLM)
+#   torch>=2.1           # --judge hf

@@ -26,6 +26,9 @@ def build_config(args) -> QualityConfig:
         cfg.video.sample_fps = args.video_fps
     if args.near_dup_dist:
         cfg.dedup.near_dup_dist = args.near_dup_dist
+    if args.judge and args.judge != "none":
+        cfg.instruction.enabled = True
+        cfg.instruction.backend = args.judge
     return cfg
 
 
@@ -38,6 +41,9 @@ def main(argv=None) -> int:
     p.add_argument("--threshold", type=float, default=0.60, help="keep episodes scoring >= this")
     p.add_argument("--video-fps", type=float, default=0.0, help="frames/sec sampled per clip")
     p.add_argument("--near-dup-dist", type=float, default=0.0, help="dedup distance threshold")
+    p.add_argument("--judge", choices=["none", "heuristic", "claude", "hf"],
+                   default="none",
+                   help="VLM instruction-following judge backend (heuristic=offline)")
     p.add_argument("--quiet", action="store_true")
     args = p.parse_args(argv)
 

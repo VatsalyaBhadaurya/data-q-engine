@@ -16,8 +16,10 @@ computable from the recorded demonstrations:
 | Trajectory plausibility | joint-limit checks, discontinuity/glitch detection, smoothness (jerk) |
 | Motion consistency | commanded-vs-achieved tracking error (`state[t+1]` vs `action[t]`) |
 | Video quality filter | blur (variance of Laplacian), exposure, frozen-frame detection |
+| Instruction following | pluggable VLM judge scores whether frames accomplish the task instruction |
 | Redundancy pruning | cross-episode near-duplicate detection on trajectory fingerprints |
 | Adaptive data selection | per-episode score + threshold -> curated keep-list |
+| Synthetic augmentation | generate trajectory variants + instruction paraphrases, then re-filter |
 
 ## Install
 
@@ -39,7 +41,49 @@ python -m dqe.cli --dataset piper_dataset_1100 --out out --dedup --threshold 0.8
 ```
 
 Flags: `--video`, `--dedup`, `--threshold T`, `--video-fps F`,
-`--near-dup-dist D`, `--quiet`.
+`--near-dup-dist D`, `--judge {none,heuristic,claude,hf}`, `--quiet`.
+
+### VLM instruction-following judge
+
+Scores whether each episode's frames actually accomplish its language
+instruction (RLDX's instruction-following filter). Three backends:
+
+```bash
+# offline proxy from trajectory signals — no model, no network (default judge)
+python -m dqe.cli --dataset piper_dataset_1100 --out out --judge heuristic
+
+# Anthropic vision judge (claude-opus-4-8) — sends sampled frames to the API
+pip install anthropic && export ANTHROPIC_API_KEY=...   # (PowerShell: $env:ANTHROPIC_API_KEY=...)
+python -m dqe.cli --dataset piper_dataset_1100 --out out --video --judge claude
+
+# local Qwen2-VL on GPU (faithful to RLDX's Qwen3-VL judge; needs weights)
+python -m dqe.cli --dataset piper_dataset_1100 --out out --video --judge hf
+```
+
+The judge adds an `instruction` sub-score; episodes below
+`instruction.fail_threshold` get the critical `instruction_fail` flag and are
+dropped. `claude`/`hf` are **opt-in** — `heuristic` is the default and the only
+backend that runs with no extra dependencies. `claude` sends frames to an
+external API (cost + data leaves your machine); enable it deliberately.
+
+### Synthetic data augmentation
+
+Generate new episodes from real ones via label-preserving kinematic transforms
+(jitter, time-warp, idle-crop, gripper-timing jitter), score every variant with
+the same quality scorer, and keep only those that pass — RLDX's
+generate-then-filter loop. Instructions are paraphrased alongside.
+
+```bash
+python -m dqe.augment.cli --dataset piper_dataset_1100 --out out \
+    --curated out/curated/keep_episodes.json --per-episode 2 --threshold 0.7
+```
+
+Flags: `--curated FILE` (augment only kept episodes), `--per-episode N`,
+`--threshold T`, `--transforms jitter,time_warp,crop_idle,gripper_jitter`,
+`--task-backend {offline,claude}`, `--seed N`. Outputs land in
+`out/synthetic/`: a LeRobot-style `data/*.parquet` of synthetic episodes, a
+`manifest.json` (provenance: source episode + transform + score per variant),
+and `task_paraphrases.json`.
 
 ## Outputs (`out/`)
 
@@ -76,10 +120,20 @@ dqe/
   engine.py            orchestration: dataset -> metrics -> scores -> dedup
   report.py            CSV / JSON / Markdown writers
   curate.py            curated keep-list writer
-  cli.py               command-line entry point
+  cli.py               command-line entry point (scoring + judge)
+  augment/
+    instruction_judge.py  VLM judge: heuristic / claude / hf backends
+    task_augment.py       instruction paraphrasing: offline / claude
+    trajectory_augment.py kinematic transforms (jitter/warp/crop/gripper)
+    synthesize.py         generate -> filter -> write synthetic dataset
+    cli.py                augmentation entry point
 tests/
   make_synthetic.py    builds a tiny dataset with known defects for validation
 ```
+
+Optional backends: `pip install anthropic` for the `claude` judge/paraphraser;
+`transformers`+`torch` (and a downloaded VLM) for the `hf` judge. Neither is
+required for the default offline paths.
 
 ## Findings on `piper_dataset_1100` (Agilex Piper, 1116 episodes, 606k frames)
 

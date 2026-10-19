@@ -111,6 +111,14 @@ class Scorer:
         elif self.cfg.video.enabled and m.get("video_available", 1.0) < 1.0:
             flags.append("video_missing")
 
+        # instruction-following (VLM judge, optional)
+        if self.cfg.instruction.enabled and "instruction_score" in m:
+            s = m["instruction_score"]
+            subs["instruction"] = s
+            weights["instruction"] = w.instruction
+            if s < self.cfg.instruction.fail_threshold:
+                flags.append("instruction_fail(%.2f)" % s)
+
         # integrity hard flag
         if m.get("nan_ratio", 0.0) > 0.0:
             flags.append("contains_nan(%.3f)" % m["nan_ratio"])

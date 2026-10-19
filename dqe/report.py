@@ -25,7 +25,10 @@ def _flatten(rec: Dict) -> Dict:
     for k, v in rec["subscores"].items():
         row["sub_" + k] = round(v, 4)
     for k, v in rec["metrics"].items():
-        row["m_" + k] = round(float(v), 5)
+        if isinstance(v, (int, float)):
+            row["m_" + k] = round(float(v), 5)
+        else:
+            row["m_" + k] = v
     return row
 
 
