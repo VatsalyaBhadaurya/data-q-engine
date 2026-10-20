@@ -2,6 +2,7 @@ out/
 tests/_*/
 __pycache__/
 *.pyc
+.venv*/
 
 # large downloaded dataset (separate repo, not part of the engine)
 piper_dataset_1100/

@@ -94,6 +94,19 @@ from the curated keep-list without being silently discarded — "abstain rather
 than mislabel" is the right default for a data-quality gate. Toggle with
 `instruction.review_on_abstain` in `dqe/config.py`.
 
+**Validated on real episodes** (VegaML 0.12.4, default 0.8B reader, CPU).
+`tests/smoke_vegaml.py` confirms the adapter reads the live API correctly; the
+raw output exposes `boolean` / `abstain` / `prediction_set` / calibrated
+`probs` as the adapter expects. `tests/smoke_vegaml_discriminate.py` shows the
+judge genuinely discriminates rather than rubber-stamping — asking the *wrong*
+instruction over the same frames drops P(success) by ~0.20–0.30 and makes the
+engine **abstain** on most cases, while the true instruction stays confident
+(abstain=False). This is the signal that justifies the `needs_review` route.
+
+Note: VegaML needs Python >= 3.10 and `transformers >= 5.17`; run it in a
+separate venv if your main environment is older. CPU inference is ~6 s/episode;
+use a GPU reader for full-dataset runs.
+
 ### Synthetic data augmentation
 
 Generate new episodes from real ones via label-preserving kinematic transforms
