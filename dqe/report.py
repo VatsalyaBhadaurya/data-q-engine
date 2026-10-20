@@ -19,6 +19,7 @@ def _flatten(rec: Dict) -> Dict:
         "task": rec.get("task"),
         "score": round(rec["score"], 4),
         "keep": rec["keep"],
+        "review": rec.get("review", False),
         "duplicate_of": rec.get("duplicate_of"),
         "flags": ";".join(rec["flags"]),
     }
@@ -43,7 +44,8 @@ def write(records: List[Dict], out_dir: str, dataset_root: str,
 
     scores = np.array([r["score"] for r in records]) if records else np.array([0.0])
     kept = [r for r in records if r["keep"]]
-    dropped = [r for r in records if not r["keep"]]
+    review = [r for r in records if r.get("review")]
+    dropped = [r for r in records if not r["keep"] and not r.get("review")]
     flag_counts = Counter(f.split("(")[0] for r in records for f in r["flags"])
 
     lines = []
@@ -54,6 +56,7 @@ def write(records: List[Dict], out_dir: str, dataset_root: str,
     lines.append("| --- | --- |")
     lines.append("| Episodes scored | %d |" % len(records))
     lines.append("| Kept (curated) | %d |" % len(kept))
+    lines.append("| Needs review | %d |" % len(review))
     lines.append("| Dropped | %d |" % len(dropped))
     lines.append("| Mean score | %.3f |" % float(scores.mean()))
     lines.append("| Median score | %.3f |" % float(np.median(scores)))

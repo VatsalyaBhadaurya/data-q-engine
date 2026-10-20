@@ -17,20 +17,23 @@ def write(records: List[Dict], out_dir: str) -> Dict:
     os.makedirs(curated_dir, exist_ok=True)
 
     kept = sorted(r["episode_index"] for r in records if r["keep"])
+    review = sorted(r["episode_index"] for r in records if r.get("review"))
     dropped = [
         {
             "episode_index": r["episode_index"],
             "score": round(r["score"], 4),
-            "reasons": r["flags"] or (["below_threshold"] if not r["keep"] else []),
+            "reasons": r["flags"] or ["below_threshold"],
         }
-        for r in records if not r["keep"]
+        for r in records if not r["keep"] and not r.get("review")
     ]
 
     summary = {
         "n_total": len(records),
         "n_kept": len(kept),
+        "n_review": len(review),
         "n_dropped": len(dropped),
         "kept_episodes": kept,
+        "review_episodes": review,
         "dropped": dropped,
     }
     with open(os.path.join(curated_dir, "keep_episodes.json"), "w",
@@ -39,6 +42,10 @@ def write(records: List[Dict], out_dir: str) -> Dict:
     with open(os.path.join(curated_dir, "keep_episodes.txt"), "w",
               encoding="utf-8") as f:
         f.write("\n".join(str(e) for e in kept) + ("\n" if kept else ""))
+    if review:
+        with open(os.path.join(curated_dir, "review_episodes.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write("\n".join(str(e) for e in review) + "\n")
 
     # a ready-to-paste snippet
     with open(os.path.join(curated_dir, "usage.md"), "w", encoding="utf-8") as f:

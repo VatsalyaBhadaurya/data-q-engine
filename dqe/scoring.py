@@ -114,10 +114,16 @@ class Scorer:
         # instruction-following (VLM judge, optional)
         if self.cfg.instruction.enabled and "instruction_score" in m:
             s = m["instruction_score"]
-            subs["instruction"] = s
-            weights["instruction"] = w.instruction
-            if s < self.cfg.instruction.fail_threshold:
-                flags.append("instruction_fail(%.2f)" % s)
+            abstain = bool(m.get("instruction_abstain", False))
+            if abstain and self.cfg.instruction.review_on_abstain:
+                # judge declined to decide -> route to human review, don't
+                # fold an unreliable score into the overall quality number.
+                flags.append("needs_review(instruction=%.2f)" % s)
+            else:
+                subs["instruction"] = s
+                weights["instruction"] = w.instruction
+                if s < self.cfg.instruction.fail_threshold:
+                    flags.append("instruction_fail(%.2f)" % s)
 
         # integrity hard flag
         if m.get("nan_ratio", 0.0) > 0.0:

@@ -48,7 +48,15 @@ _PROMPT = (
 
 
 class InstructionJudge:
-    """Base class. Subclasses implement ``judge``."""
+    """Base class. Subclasses implement ``judge``.
+
+    ``judge`` returns:
+        {"instruction_score": float in [0,1],
+         "success": bool,
+         "abstain": bool,      # True => judge declines to decide (route to review)
+         "reason": str}
+    Backends that cannot abstain always return ``abstain=False``.
+    """
 
     def judge(self, instruction: Optional[str], frames: List[np.ndarray],
               metrics: Dict[str, float]) -> Dict:
@@ -75,7 +83,8 @@ class HeuristicInstructionJudge(InstructionJudge):
         success = score >= 0.5
         reason = ("heuristic: gripper=%.3f path=%.2f idle=%.2f track=%.3f"
                   % (grip, path, idle, track))
-        return {"instruction_score": score, "success": success, "reason": reason}
+        return {"instruction_score": score, "success": success,
+                "abstain": False, "reason": reason}
 
 
 # --------------------------------------------------------------------------- #
@@ -110,7 +119,7 @@ class ClaudeInstructionJudge(InstructionJudge):
     def judge(self, instruction, frames, metrics):
         if not frames:
             return {"instruction_score": 0.0, "success": False,
-                    "reason": "no frames to judge"}
+                    "abstain": False, "reason": "no frames to judge"}
         content: List[dict] = []
         for fr in frames:
             data = _encode_jpeg(fr)
@@ -135,6 +144,7 @@ class ClaudeInstructionJudge(InstructionJudge):
         score = float(max(0.0, min(1.0, data.get("score", 0.0))))
         return {"instruction_score": score,
                 "success": bool(data.get("success", score >= 0.5)),
+                "abstain": False,
                 "reason": "claude: " + str(data.get("reason", ""))}
 
 
@@ -181,7 +191,68 @@ class HFVLMInstructionJudge(InstructionJudge):
         score = float(max(0.0, min(1.0, data.get("score", 0.0))))
         return {"instruction_score": score,
                 "success": bool(data.get("success", score >= 0.5)),
+                "abstain": False,
                 "reason": "hf: " + str(data.get("reason", ""))}
+
+
+# --------------------------------------------------------------------------- #
+def _montage(frames: List[np.ndarray], max_cols: int = 4):
+    """Tile time-ordered frames left->right into a single HxWx3 image so a
+    single-image model still sees temporal progression."""
+    import cv2
+    if not frames:
+        return None
+    sel = frames[:max_cols]
+    h = min(f.shape[0] for f in sel)
+    tiles = [cv2.resize(f, (int(f.shape[1] * h / f.shape[0]), h)) for f in sel]
+    return np.hstack(tiles)
+
+
+class VegaMLInstructionJudge(InstructionJudge):
+    """VegaML typed-decision judge: calibrated P(success) + abstention.
+
+    Asks a single boolean question ("do these frames accomplish the
+    instruction?") against a montage of sampled frames. Unlike the other
+    backends this one can *abstain* when the engine is not confident, which the
+    pipeline routes to human review instead of a forced keep/drop. Lazily
+    imported and opt-in; requires ``pip install vegaml`` + model weights.
+    """
+
+    def __init__(self, backbone: Optional[str] = None):
+        try:
+            import vegaml  # noqa: F401
+        except ImportError as e:
+            raise RuntimeError(
+                "backend=vegaml needs: pip install vegaml") from e
+        import vegaml
+        self.v = vegaml.load(backbone) if backbone else vegaml.load()
+
+    def judge(self, instruction, frames, metrics):
+        img = _montage(frames)
+        if img is None:
+            return {"instruction_score": 0.0, "success": False,
+                    "abstain": False, "reason": "no frames to judge"}
+        questions = {
+            "success": {
+                "type": "boolean",
+                "instructions": (
+                    "These frames are sampled in time order from a robot-arm "
+                    "demonstration attempting: \"%s\". Does the demonstration "
+                    "accomplish that instruction?" % (instruction or "(none)")),
+                "criteria": {"true": "the task is completed in the frames",
+                             "false": "the task is not completed"},
+            }
+        }
+        out = self.v.decide_image(img, questions)
+        ans = out["answers"]["success"]
+        prob = float(ans.get("boolean", 0.0))
+        abstain = bool(ans.get("abstain", False))
+        pset = ans.get("prediction_set")
+        return {"instruction_score": prob,
+                "success": prob >= 0.5,
+                "abstain": abstain,
+                "reason": "vegaml: p=%.2f abstain=%s set=%s" % (
+                    prob, abstain, pset)}
 
 
 def build_judge(cfg) -> InstructionJudge:
@@ -192,4 +263,6 @@ def build_judge(cfg) -> InstructionJudge:
         return ClaudeInstructionJudge(cfg.model)
     if backend == "hf":
         return HFVLMInstructionJudge(cfg.hf_model)
+    if backend == "vegaml":
+        return VegaMLInstructionJudge(getattr(cfg, "vegaml_backbone", None))
     raise ValueError("unknown instruction backend: %s" % backend)

@@ -16,7 +16,7 @@ computable from the recorded demonstrations:
 | Trajectory plausibility | joint-limit checks, discontinuity/glitch detection, smoothness (jerk) |
 | Motion consistency | commanded-vs-achieved tracking error (`state[t+1]` vs `action[t]`) |
 | Video quality filter | blur (variance of Laplacian), exposure, frozen-frame detection |
-| Instruction following | pluggable VLM judge scores whether frames accomplish the task instruction |
+| Instruction following | pluggable VLM judge scores whether frames accomplish the task instruction (calibrated + abstain via VegaML) |
 | Redundancy pruning | cross-episode near-duplicate detection on trajectory fingerprints |
 | Adaptive data selection | per-episode score + threshold -> curated keep-list |
 | Synthetic augmentation | generate trajectory variants + instruction paraphrases, then re-filter |
@@ -41,12 +41,12 @@ python -m dqe.cli --dataset piper_dataset_1100 --out out --dedup --threshold 0.8
 ```
 
 Flags: `--video`, `--dedup`, `--threshold T`, `--video-fps F`,
-`--near-dup-dist D`, `--judge {none,heuristic,claude,hf}`, `--quiet`.
+`--near-dup-dist D`, `--judge {none,heuristic,claude,hf,vegaml}`, `--quiet`.
 
 ### VLM instruction-following judge
 
 Scores whether each episode's frames actually accomplish its language
-instruction (RLDX's instruction-following filter). Three backends:
+instruction (RLDX's instruction-following filter). Four backends:
 
 ```bash
 # offline proxy from trajectory signals — no model, no network (default judge)
@@ -58,13 +58,41 @@ python -m dqe.cli --dataset piper_dataset_1100 --out out --video --judge claude
 
 # local Qwen2-VL on GPU (faithful to RLDX's Qwen3-VL judge; needs weights)
 python -m dqe.cli --dataset piper_dataset_1100 --out out --video --judge hf
+
+# VegaML — calibrated P(success) + abstention; abstain -> human review
+pip install vegaml
+python -m dqe.cli --dataset piper_dataset_1100 --out out --video --judge vegaml
 ```
 
 The judge adds an `instruction` sub-score; episodes below
 `instruction.fail_threshold` get the critical `instruction_fail` flag and are
-dropped. `claude`/`hf` are **opt-in** — `heuristic` is the default and the only
-backend that runs with no extra dependencies. `claude` sends frames to an
-external API (cost + data leaves your machine); enable it deliberately.
+dropped. `heuristic` is the default and the only backend that runs with no
+extra dependencies; `claude`/`hf`/`vegaml` are **opt-in**. `claude` sends
+frames to an external API (cost + data leaves your machine); enable it
+deliberately.
+
+#### VegaML: calibrated judging with abstention
+
+[VegaML](https://github.com/NandhaKishorM/vegaml) makes *typed decisions* from
+a frozen LM via a physics-based inference engine, returning **calibrated
+probabilities**, **conformal prediction sets**, and an explicit **abstain**
+flag. The `vegaml` backend asks a single boolean question — "do these frames
+accomplish the instruction?" — against a time-ordered montage of the sampled
+frames, giving a calibrated `P(success)`.
+
+Its key advantage over a thresholded VLM score is a **three-way outcome**
+instead of a forced keep/drop:
+
+| Verdict | Routing |
+| --- | --- |
+| confident success | kept (`instruction` sub-score counts toward quality) |
+| confident failure | `instruction_fail` (critical) → dropped |
+| **abstain / low confidence** | **`needs_review` → routed to human review** |
+
+Reviewed episodes land in `out/curated/review_episodes.txt` and are excluded
+from the curated keep-list without being silently discarded — "abstain rather
+than mislabel" is the right default for a data-quality gate. Toggle with
+`instruction.review_on_abstain` in `dqe/config.py`.
 
 ### Synthetic data augmentation
 
@@ -122,7 +150,7 @@ dqe/
   curate.py            curated keep-list writer
   cli.py               command-line entry point (scoring + judge)
   augment/
-    instruction_judge.py  VLM judge: heuristic / claude / hf backends
+    instruction_judge.py  VLM judge: heuristic / claude / hf / vegaml backends
     task_augment.py       instruction paraphrasing: offline / claude
     trajectory_augment.py kinematic transforms (jitter/warp/crop/gripper)
     synthesize.py         generate -> filter -> write synthetic dataset
@@ -132,7 +160,8 @@ tests/
 ```
 
 Optional backends: `pip install anthropic` for the `claude` judge/paraphraser;
-`transformers`+`torch` (and a downloaded VLM) for the `hf` judge. Neither is
+`transformers`+`torch` (and a downloaded VLM) for the `hf` judge;
+`pip install vegaml` for the calibrated/abstaining `vegaml` judge. None is
 required for the default offline paths.
 
 ## Findings on `piper_dataset_1100` (Agilex Piper, 1116 episodes, 606k frames)

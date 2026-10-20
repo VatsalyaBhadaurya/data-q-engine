@@ -66,6 +66,7 @@ class Engine:
                         self.cfg.instruction.max_frames)
                 verdict = judge.judge(ep.task, frames, m)
                 m["instruction_score"] = verdict["instruction_score"]
+                m["instruction_abstain"] = bool(verdict.get("abstain", False))
                 m["instruction_reason"] = verdict["reason"]
 
             scored = scorer.score_episode(m)
@@ -101,14 +102,18 @@ class Engine:
                 if keep != e:
                     rec["flags"] = rec["flags"] + ["duplicate_of(%d)" % keep]
 
-        # pass/fail decision
+        # keep / review / drop decision. "needs_review" (judge abstained) is a
+        # third route: not kept, not a quality failure -> human review.
         critical = tuple(self.cfg.critical_flags)
         for rec in records:
             dup = rec.get("duplicate_of")
-            has_critical = any(f.split("(")[0] in critical for f in rec["flags"])
+            flag_names = [f.split("(")[0] for f in rec["flags"]]
+            has_critical = any(f in critical for f in flag_names)
+            rec["review"] = "needs_review" in flag_names and dup is None
             rec["keep"] = bool(
                 rec["score"] >= self.cfg.pass_threshold
                 and dup is None
                 and not has_critical
+                and not rec["review"]
             )
         return records

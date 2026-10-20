@@ -61,11 +61,15 @@ class InstructionConfig:
     following" filter). Scores whether an episode's frames actually accomplish
     its language instruction."""
     enabled: bool = False
-    backend: str = "heuristic"            # heuristic | claude | hf
+    backend: str = "heuristic"            # heuristic | claude | hf | vegaml
     model: str = "claude-opus-4-8"        # for backend=claude
     hf_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"   # for backend=hf
+    vegaml_backbone: str = ""             # for backend=vegaml ("" -> default reader)
     max_frames: int = 4                   # frames sampled from the clip to judge
     fail_threshold: float = 0.5           # below this -> instruction_fail (critical)
+    # When a judge abstains (vegaml only), the episode is routed to human review
+    # instead of auto keep/drop.
+    review_on_abstain: bool = True
 
 
 @dataclass

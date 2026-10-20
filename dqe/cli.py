@@ -41,9 +41,11 @@ def main(argv=None) -> int:
     p.add_argument("--threshold", type=float, default=0.60, help="keep episodes scoring >= this")
     p.add_argument("--video-fps", type=float, default=0.0, help="frames/sec sampled per clip")
     p.add_argument("--near-dup-dist", type=float, default=0.0, help="dedup distance threshold")
-    p.add_argument("--judge", choices=["none", "heuristic", "claude", "hf"],
+    p.add_argument("--judge",
+                   choices=["none", "heuristic", "claude", "hf", "vegaml"],
                    default="none",
-                   help="VLM instruction-following judge backend (heuristic=offline)")
+                   help="VLM instruction-following judge backend (heuristic=offline; "
+                        "vegaml=calibrated + abstain->review)")
     p.add_argument("--quiet", action="store_true")
     args = p.parse_args(argv)
 

@@ -1,6 +1,5 @@
 out/
-tests/_synth_ds/
-tests/_synth_out/
+tests/_*/
 __pycache__/
 *.pyc
 
